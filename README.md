@@ -1,8 +1,8 @@
-# 使用 AixProbe V821 调试 TI MSPM0G3507
+# 使用 AixProbe V821 调试 TI MSPM0G3507 最小系统板
 
-本文给出一套可执行的准备和连接流程，目标是用 AixProbe V821 通过 SWD 调试或烧录 MSPM0G3507。
+本文给出一套可执行的准备和连接流程，目标是用 AixProbe V821 通过 SWD 调试或烧录一块**没有板载 XDS110 的 MSPM0G3507 最小系统板**。
 
-> 适用范围：AixProbe V821、LP-MSPM0G3507 LaunchPad，或带标准 3.3 V SWD 接口的 MSPM0G3507 自定义板。
+> 适用范围：AixProbe V821 + MSPM0G3507 最小系统板。LP-MSPM0G3507 LaunchPad 的 J101/J103 处理只放在文末附录，不属于本文主流程。
 >
 > 验证状态：本文根据 AixProbe V821 资料、原理图和 AixProbe 随附的 OpenOCD 源码整理；OpenOCD 目标配置和器件表已核对，尚未在实物上完成烧录验证。首次使用时请先按文末检查项逐项确认。
 
@@ -21,9 +21,9 @@ AixProbe V821 的调试接口芯片是 CH347F，AixProbe 随附的 OpenOCD 源�
 
 - [ ] AixProbe V821 已能正常启动，UI 可以连接；
 - [ ] AixProbe 的 I/O 电压选择为 3.3 V；
-- [ ] 一根 AixProbe CN1 2x13 转 LP-MSPM0G3507 J103 2x5 的转接线；
+- [ ] 一根 AixProbe CN1 2x13 转最小系统板 SWD 排针的转接线；
 - [ ] 目标板独立供电，且与 AixProbe 共地；
-- [ ] 目标板 SWD 接口包含 SWDIO、SWCLK、GND、NRESET；
+- [ ] 目标板 SWD 接口至少包含 SWDIO、SWCLK、GND，最好同时引出 NRST；
 - [ ] AixProbe OpenOCD 使用自定义 CH347F 配置；
 - [ ] 一份带符号和 DWARF 信息的 `.elf` 或 TI `.out`；
 - [ ] 一套 `arm-none-eabi-gdb/readelf/nm/objdump/addr2line` 工具；
@@ -45,7 +45,7 @@ MSPM0G3507 使用 3.3 V I/O，不是 5 V 容忍器件。
 - [ ] 目标板 3.3 V 供电正常；
 - [ ] AixProbe 与目标板已经共地。
 
-### 1.2 CN1 到 J103 的接线
+### 1.2 CN1 到最小系统板 SWD 的接线
 
 AixProbe V821 的 CN1 关键引脚：
 
@@ -59,43 +59,36 @@ AixProbe V821 的 CN1 关键引脚：
 | 10 | `NRESET` | 目标复位 |
 | 21 | `3V3` | 板载 3.3 V，默认不要接目标板 |
 
-LP-MSPM0G3507 的 J103 是标准 10 针 Arm Cortex 调试口，常见定义如下。请以板上第 1 脚标记和原理图为准：
+最小系统板通常只把 SWD 信号引到排针，没有板载调试器。请先找到板子上的丝印，再按信号名接线，不要按排针位置猜：
 
-| J103 引脚 | 信号 |
+| AixProbe CN1 | 最小系统板 SWD 排针 |
 |---|---|
-| 1 | `VTREF` |
-| 2 | `SWDIO/TMS` |
-| 3 | `GND` |
-| 4 | `SWCLK/TCK` |
-| 5 | `GND` |
-| 6 | `SWO/TDO` |
-| 7 | `KEY` |
-| 8 | `TDI` |
-| 9 | `GNDDetect` |
-| 10 | `NRESET` |
+| CN1-2 `SWDIO` | `SWDIO` |
+| CN1-4 `SWCLK` | `SWCLK` |
+| CN1-5 `GND` | `GND` |
+| CN1-10 `NRESET` | `NRST` / `RESET`，如果有 |
 
-首次连接只接以下四根：
+如果板子的 SWD 排针是常见的 5 针布局，通常还会有一个 `3V3` 引脚。这个 3.3 V 用作目标板供电或电压参考，**不要把它和 AixProbe 的 CN1-1 `+5V`、CN1-3 `CH347F_VIO` 或 CN1-21 `3V3` 直接并联**。目标板请独立供电，只连接 GND、SWDIO、SWCLK 和 NRESET。
 
-| AixProbe CN1 | 目标板 J103 |
-|---|---|
-| CN1-2 `SWDIO` | J103-2 |
-| CN1-4 `SWCLK` | J103-4 |
-| CN1-5 `GND` | J103-3、J103-5 或 J103-9 |
-| CN1-10 `NRESET` | J103-10 |
+如果最小系统板只有 4 针 SWD 排针（GND、SWDIO、SWCLK、3V3）而没有 `NRST`：
+
+- 基础连接和下载有时仍然可以工作；
+- `mspm0_mass_erase`、`mspm0_factory_reset` 和锁定恢复可能失败；
+- 需要手动按复位键，或者把 MCU 的 nRST 引脚单独引出来。
 
 重要警告：
 
-- **不要把 CN1-1 `+5V` 接到 J103-1。** J103-1 是 `VTREF`，通常不是 5 V。
+- **不要把 CN1-1 `+5V` 接到最小系统板的 3.3 V 引脚。**
 - 不要把 CN1-3 `CH347F_VIO` 或 CN1-21 `3V3` 与目标板的 3.3 V 电源直接并联。两套电源同时驱动可能造成倒灌。
 - 如果 UI 提示缺少目标电压参考，再按 AixProbe 的具体说明处理 `VTREF/VIO`，不要凭猜测接电源。
 - SWD 线尽量短，建议不超过 10 到 15 cm。
 - 先连接地线，再连接信号线；不要在带电状态下热插拔。
 
-### 1.3 LaunchPad 的板载 XDS110 隔离
+### 1.3 没有板载 XDS110 时不需要 J101/J103
 
-使用 LP-MSPM0G3507 的外部调试口 J103 时，需要按 TI LaunchPad 用户指南移除 J101 隔离排针上的相关跳线，使板载 XDS110 与外部调试器断开。
+最小系统板没有板载 XDS110，因此不需要处理 LaunchPad 的 J101 隔离跳线，也没有两个调试器争用 SWD 的问题。只要最小系统板本身有正常的 3.3 V 供电，并按上面的信号名接好 SWD 即可。
 
-不要让板载 XDS110 和 AixProbe 同时驱动同一条 SWD 总线。目标板仍然可以用自己的 USB 或外部电源供电，但要先测量目标 3.3 V 是否正常。
+如果以后换成 LP-MSPM0G3507 LaunchPad，再参考文末附录处理 J101/J103；不要把 LaunchPad 的步骤套到最小系统板上。
 
 ### 1.4 电源和复位
 
@@ -270,9 +263,9 @@ OpenOCD target_name 是 mspm0x.cpu，使用 target/ti/mspm0.cfg。
 
 1. 断开 AixProbe 和目标板电源。
 2. 连接 CN1-5 到目标 GND。
-3. 连接 CN1-2 到 J103-2。
-4. 连接 CN1-4 到 J103-4。
-5. 连接 CN1-10 到 J103-10。
+3. 连接 CN1-2 到目标 `SWDIO`。
+4. 连接 CN1-4 到目标 `SWCLK`。
+5. 连接 CN1-10 到目标 `NRST` / `RESET`，如果板子引出了该信号。
 6. 检查没有把 +5 V 接到目标板。
 
 ### 5.2 上电并检查电压
@@ -280,7 +273,7 @@ OpenOCD target_name 是 mspm0x.cpu，使用 target/ti/mspm0.cfg。
 1. 目标板独立上电。
 2. 测量目标 3.3 V 和 GND。
 3. 确认 AixProbe I/O 选择为 3.3 V。
-4. 确认 J101 隔离跳线已按 LaunchPad 指南处理。
+4. 最小系统板没有板载 XDS110，不需要处理 J101 隔离跳线。
 
 ### 5.3 启动 OpenOCD 并连接
 
@@ -373,7 +366,7 @@ AixProbe V821 的 SWD 信号已有串联电阻设计，但仍应避免长线和�
 
 ## 8. 推荐的上手顺序
 
-1. 只接 SWDIO、SWCLK、GND、NRESET。
+1. 只接 SWDIO、SWCLK、GND；如果板子引出 NRST，一并接上。
 2. 目标板独立供电，确认 3.3 V。
 3. AixProbe 电平设为 3.3 V。
 4. 加载 CH347F + MSPM0G3507 OpenOCD 配置。
@@ -393,3 +386,31 @@ AixProbe V821 的 SWD 信号已有串联电阻设计，但仍应避免长线和�
 - AixProbe V821 原理图中的 CN1、CH347F 和电平选择
 
 其中 `mspm0-launchpad.cfg` 只适合板载 XDS110，不应当直接用于 AixProbe 的 CH347F。
+
+## 附录：LP-MSPM0G3507 LaunchPad（不适用于最小系统板）
+
+如果以后改用 LP-MSPM0G3507 LaunchPad，J103 是标准 10 针 Arm Cortex 调试口：
+
+| J103 引脚 | 信号 |
+|---|---|
+| 1 | `VTREF` |
+| 2 | `SWDIO/TMS` |
+| 3 | `GND` |
+| 4 | `SWCLK/TCK` |
+| 5 | `GND` |
+| 6 | `SWO/TDO` |
+| 7 | `KEY` |
+| 8 | `TDI` |
+| 9 | `GNDDetect` |
+| 10 | `NRESET` |
+
+此时 AixProbe 的接线为：
+
+| AixProbe CN1 | LP-MSPM0G3507 J103 |
+|---|---|
+| CN1-2 `SWDIO` | J103-2 |
+| CN1-4 `SWCLK` | J103-4 |
+| CN1-5 `GND` | J103-3、J103-5 或 J103-9 |
+| CN1-10 `NRESET` | J103-10 |
+
+并且需要按 TI LaunchPad 用户指南移除 J101 隔离排针上的相关跳线，避免板载 XDS110 和 AixProbe 同时驱动 SWD。不要把 CN1-1 `+5V` 接到 J103-1；J103-1 是 `VTREF`，通常不是 5 V。
