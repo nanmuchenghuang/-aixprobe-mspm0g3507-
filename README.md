@@ -1,12 +1,60 @@
-# 使用 AixProbe V821 调试 TI MSPM0G3507 最小系统板
+# 使用 AixProbe V821 调试 TI MSPM0G3507（C07A / MSP-LITO-G3507）
 
 本文给出一套可执行的准备和连接流程，目标是用 AixProbe V821 通过 SWD 调试或烧录一块**没有板载 XDS110 的 MSPM0G3507 最小系统板**。
 
-> 适用范围：AixProbe V821 + MSPM0G3507 最小系统板。LP-MSPM0G3507 LaunchPad 的 J101/J103 处理只放在文末附录，不属于本文主流程。
+> 适用范围：AixProbe V821 + MSPM0G3507 最小系统板。已验证目标板为 TI MSP-LITO-G3507；WHEELTEC C07A 的历史问题见文末问题记录。LP-MSPM0G3507 LaunchPad 的 J101/J103 处理只放在文末附录，不属于本文主流程。
 >
-> 验证状态：本文根据 AixProbe V821 资料、原理图和 AixProbe 随附的 OpenOCD 源码整理；OpenOCD 目标配置和器件表已核对，尚未在实物上完成烧录验证。首次使用时请先按文末检查项逐项确认。
+> 验证状态：已在 TI MSP-LITO-G3507 实物上验证 SWD 连接、CPU halt、PC/CPUID 读取和 MAIN Flash 探测；尚未在本文流程下完成用户 ELF 烧录验证。
 
 > 本次实物调试的故障定位与恢复记录见：[问题.md](问题.md)。
+
+## 已验证方案：MSP-LITO-G3507
+
+本机 AixProbe V821 的实机配置为：
+
+```text
+SW2-1 ON
+SW2-4 ON
+SW2-2 OFF
+SW2-3 OFF
+```
+
+早期文档中“SW2-4 必须 OFF”的结论不适用于这台 V821。只有同时打开 SW2-1 和 SW2-4 时，AixProbe 内的 CH347F 才能正常枚举为 `1a86:55de`。
+
+MSP-LITO-G3507 没有板载调试器，应由外部调试器通过 J3 提供 3.3 V。J3 引脚定义为：
+
+| J3 引脚 | 信号 |
+|---|---|
+| 1 | `PA18_BSL` |
+| 2 | `RST` |
+| 3 | `PA10 Debug TX` |
+| 4 | `PA11 Debug RX` |
+| 5 | `SWCLK / PA20` |
+| 6 | `SWDIO / PA19` |
+| 7 | `GND` |
+| 8 | `3V3` |
+
+AixProbe 连接：
+
+| AixProbe 信号 | MSP-LITO-G3507 J3 |
+|---|---|
+| `SWDIO / JTAG_TMS` | J3-6 |
+| `SWCLK / JTAG_TCK` | J3-5 |
+| `GND` | J3-7 |
+| `3V3` | J3-8 |
+
+使用 AixProbe 3.3 V 给 J3 供电时，不要同时连接外部 3.3 V 电源、XDS110 或其他调试器。AixProbe 的 `+5V` 和 `CH347F_VIO` 不要接到 J3-8。
+
+已验证的成功状态：
+
+```text
+target_name: mspm0x.cpu
+arch: cortex_m
+state: halted
+PC: 0x0000019E
+CPUID: 0x410CC601
+MAIN Flash: 0x00000000, size 0x00020000
+```
 
 ## 0. 结论和需要准备的东西
 
@@ -22,9 +70,9 @@ AixProbe V821 的调试接口芯片是 CH347F，AixProbe 随附的 OpenOCD 源�
 准备清单：
 
 - [ ] AixProbe V821 已能正常启动，UI 可以连接；
-- [ ] AixProbe 的 I/O 电压选择为 3.3 V；
+- [ ] AixProbe 的 SW2 设置为 `1 ON、4 ON、2 OFF、3 OFF`，I/O 电平为 3.3 V；
 - [ ] 一根 AixProbe CN1 2x13 转最小系统板 SWD 排针的转接线；
-- [ ] 目标板独立供电，且与 AixProbe 共地；
+- [ ] 目标板有稳定的 3.3 V 供电并与 AixProbe 共地；MSP-LITO-G3507 可由 AixProbe J3-8 的 3V3 供电；
 - [ ] 目标板 SWD 接口至少包含 SWDIO、SWCLK、GND，最好同时引出 NRST；
 - [ ] AixProbe OpenOCD 使用自定义 CH347F 配置；
 - [ ] 一份带符号和 DWARF 信息的 `.elf` 或 TI `.out`；
@@ -38,7 +86,7 @@ AixProbe V821 的调试接口芯片是 CH347F，AixProbe 随附的 OpenOCD 源�
 
 MSPM0G3507 使用 3.3 V I/O，不是 5 V 容忍器件。
 
-按 AixProbe V821 原理图，板上存在 3V3、2V8、1V8 电平选择。首次使用请把 AixProbe 的 I/O 电压设置为 **3.3 V**，不要设置为 1.8 V 或 2.8 V。
+本机 AixProbe V821 实测需要将 SW2 设置为 `1 ON、4 ON、2 OFF、3 OFF`。在这种状态下 CH347F 可以枚举为 `1a86:55de`，CH347F_VIO 约为 3.3 V。SW2-4 的具体作用在不同版本和资料中有差异，应以本机实机枚举结果为准。
 
 接线前先确认：
 
@@ -48,6 +96,8 @@ MSPM0G3507 使用 3.3 V I/O，不是 5 V 容忍器件。
 - [ ] AixProbe 与目标板已经共地。
 
 ### 1.2 CN1 到最小系统板 SWD 的接线
+
+当前已验证目标是 MSP-LITO-G3507，请优先使用本文前面的 J3 引脚表。下面保留通用四针 SWD 说明，主要用于 C07A 等旧板的历史参考。
 
 AixProbe V821 的 CN1 关键引脚：
 
@@ -94,7 +144,8 @@ AixProbe V821 的 CN1 关键引脚：
 
 ### 1.4 电源和复位
 
-- MSPM0G3507 目标板建议独立供电。
+- MSP-LITO-G3507 没有板载调试器，可由 AixProbe J3-8 的 3.3 V 供电；使用 AixProbe 供电时不要再接外部 3.3 V。
+- C07A 等自带稳压器的目标板应独立供电，AixProbe 只连接 SWDIO、SWCLK 和 GND。
 - AixProbe 由自己的 USB-C 或电源供电。
 - AixProbe 和目标板必须共地。
 - 建议连接 `NRESET`。普通下载有时可以不接，但 mass erase、factory reset 和锁定芯片恢复通常需要目标 nRST。
@@ -142,7 +193,7 @@ adapter speed 10000
 ```tcl
 adapter driver ch347
 transport select swd
-adapter speed 500
+adapter speed 100
 source [find target/ti/mspm0.cfg]
 ```
 
@@ -345,8 +396,8 @@ AixProbe 随附的 MSPM0 target 配置注明：当前不支持 SWD 密码认证�
 
 CH347 系列在 SWD AP 读写和长时间操作上存在已知时序问题。建议：
 
-- 初始速度设为 500 kHz；
-- 连接稳定后再尝试 1 MHz；
+- 初始速度设为 100 kHz；
+- 连接稳定后再尝试 500 kHz；
 - 不要直接使用 XDS110 配置中的 10 MHz；
 - 出现 `parity error`、`DAP sticky error`、`SECAP timeout` 时，降到 250 kHz 或 100 kHz；
 - 缩短 SWD 线，确认共地，并保留 AixProbe 板上的串联电阻。
