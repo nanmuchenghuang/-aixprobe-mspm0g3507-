@@ -4,9 +4,11 @@
 
 > 适用范围：AixProbe V821 + MSPM0G3507 最小系统板。已验证目标板为 TI MSP-LITO-G3507；WHEELTEC C07A 的历史问题见文末问题记录。LP-MSPM0G3507 LaunchPad 的 J101/J103 处理只放在文末附录，不属于本文主流程。
 >
-> 验证状态：已在 TI MSP-LITO-G3507 实物上验证 SWD 连接、CPU halt、PC/CPUID 读取和 MAIN Flash 探测；尚未在本文流程下完成用户 ELF 烧录验证。
+> 验证状态：已在 MSPM0G3507 目标板上完成 SWD 连接、CPU halt、PC/CPUID 读取、MAIN Flash 探测、应用固件烧录与校验、完整复位，以及 UART 双向调参链路验证。
 
 > 本次实物调试的故障定位与恢复记录见：[问题.md](问题.md)。
+>
+> 2026-11-13 已完成的固件结构、调参协议、烧录复位规范和 NMI 根因总结见：[今日进展.md](今日进展.md)。
 
 ## 已验证方案：MSP-LITO-G3507
 
